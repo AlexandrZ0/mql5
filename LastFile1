@@ -1,0 +1,265 @@
+//+------------------------------------------------------------------+
+//|                                                 experemental.mq5 |
+//|                                  Copyright 2021, MetaQuotes Ltd. |
+//|                                             https://www.mql5.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2021, MetaQuotes Ltd."
+#property link      "https://www.mql5.com"
+#property version   "1.00"
+#include <Trade\Trade.mqh>
+//input double step = 1.0; //шаг усреднения в пунктах
+input double profit = 2; //прибыль в пунктах
+input int between_order = 7;//расстояние между ордерами
+input int between_pairs_order = 12;//расстояние между парами ордеров
+
+double innerStepPrice = 10.0;
+double innerValueForProfit = profit*50;
+input int Magic_num = 665;
+input double inLot  = 0.1; //объем сделки
+//input int inFilt = 50;
+input int Slipage = 1;
+double min,max;
+double ask_prev;
+double ask_curr;
+double bid_prev;
+double bid_curr;
+double lot_prev;
+double lot_curr= inLot;
+int innerValueBetweenOrders = between_order/2;
+int innerValueBetweenPairsOrders = (between_pairs_order*10)+innerValueBetweenOrders*10;
+ 
+CTrade trade;
+
+MqlTick last_tick ={};
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+  //--- 
+      lot_prev = lot_curr;
+      if(SymbolInfoTick(_Symbol,last_tick)){
+        ask_prev = NormalizeDouble(last_tick.ask,_Digits);
+        bid_prev = NormalizeDouble(last_tick.bid,_Digits);
+        Print("Init ask_prev = ",ask_prev," bid_prev = ",bid_prev);
+        Print("Point: ",_Point);
+      }
+  //---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+   
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+   funcForTick();
+  }
+//+------------------------------------------------------------------+
+// Define the function to place a pending SELLSTOP order
+long PlaceBuyStopOrder(string symbol, double lot,uint magic, int slipage,double ask_price) {
+    // Calculate the stop loss and take profit prices
+    //double slPrice = entryPrice + stopLoss * _Point;
+    //double tpPrice = entryPrice - takeProfit * _Point;
+
+    // Prepare the order parameters
+    MqlTradeRequest request = {};
+    MqlTradeResult result = {};
+
+    request.action = TRADE_ACTION_PENDING;
+    request.symbol = Symbol();
+    request.volume = lot;
+    request.type = ORDER_TYPE_BUY_STOP;
+    //Поле идентификатора торгового эксперта. Если востребовано
+    if(magic > 0) request.magic = magic;
+   
+   //Поле возможного проскальзывания. Если востребовано
+    if(slipage > 0) request.deviation = slipage;
+    //Сохраняем последнюю известную цену Аск для тороговых операций
+    
+    request.price = ask_price;
+    //request.sl = slPrice;
+    //request.tp = tpPrice;
+    request.comment = "Buy Stop Order";
+
+    // Send the order request
+    if (OrderSend(request, result)) {
+        Print("Buy Stop Order Placed Successfully");
+    } else {
+        Print("Error placing Buy Stop Order: ", GetLastError());
+    }
+    return -1;
+}
+
+
+
+
+// Define the function to place a pending SELLSTOP order
+void PlaceSellStopOrder(string symbol, double lot,uint magic, int slipage,double bid_price) {
+    // Calculate the stop loss and take profit prices
+    //double slPrice = entryPrice + stopLoss * _Point;
+    //double tpPrice = entryPrice - takeProfit * _Point;
+
+    // Prepare the order parameters
+    MqlTradeRequest request = {};
+    MqlTradeResult result = {};
+    //double bid = NormalizeDouble(bid_price,_Digits);
+    request.action = TRADE_ACTION_PENDING;
+    request.symbol = Symbol();
+    request.volume = lot;
+    request.type = ORDER_TYPE_SELL_STOP;
+    request.price = bid_price;
+    //request.sl = slPrice;
+    //request.tp = tpPrice;
+    request.comment = "Sell Stop Order";
+
+    // Send the order request
+    if (OrderSend(request, result)) {
+        Print("Sell Stop Order Placed Successfully");
+        Print("bid_price_for_sellStop: ",bid_price);
+    } else {
+        Print("Error placing Sell Stop Order: ", GetLastError());
+    }
+}
+
+double MinAndMaxPriceOfOpenPositions(double &min,double &max)
+{
+   int N = PositionsTotal();
+   double array[];
+   ArrayResize(array,N);
+   
+   for(int i = PositionsTotal()-1;i>=0;i--){
+   
+        ulong ticket = PositionGetTicket(i);
+        if(PositionSelectByTicket(ticket)){
+           double currentPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+           array[i] = currentPrice;
+        }
+   }
+   min = array[0];max = array[0];
+   for(int i = PositionsTotal()-1;i>=0;i--){
+      if(max < array[i]) max = array[i]; //если значение элемента больше значения переменной max, то записываем это значение в переменную
+		if(min > array[i]) min = array[i]; //аналогично и для min
+   }
+   Print("max = ",max);
+   Print("min = ",min);
+  
+  
+   return 0;
+}
+
+double TotalProfitForBuy(string Symb)
+{
+  double p=0.0;
+  for(int i = PositionsTotal()-1;i>=0;i--)
+  {
+    if(PositionGetSymbol(i)==Symb){
+       if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+           p = p + PositionGetDouble(POSITION_PRICE_CURRENT)-PositionGetDouble(POSITION_PRICE_OPEN);
+       }
+       //p = p + PositionGetDouble(POSITION_PRICE_CURRENT)-PositionGetDouble(POSITION_PRICE_OPEN);
+       ///p=p+PositionGetDouble(POSITION_PROFIT);
+    }
+     
+  }
+  Print("Profit position is ",p);
+  return(p);
+  
+  
+}
+
+double TotalProfitForSell(string Symb)
+{
+  double p=0;
+  for(int i = PositionsTotal()-1;i>=0;i--)
+  {
+    if(PositionGetSymbol(i)==Symb){
+       if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_SELL){
+         p = p + PositionGetDouble(POSITION_PRICE_OPEN)-PositionGetDouble(POSITION_PRICE_CURRENT);
+       }
+       //p = p + PositionGetDouble(POSITION_PRICE_OPEN)-PositionGetDouble(POSITION_PRICE_CURRENT);
+       ///p=p+PositionGetDouble(POSITION_PROFIT);
+    }
+     
+  }
+  Print("Profit position is ",p);
+  return(p);
+  
+  
+}
+
+void CloseAllPositions()
+{
+   for(int i = PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      trade.PositionClose(ticket);
+   }
+}
+
+
+void funcForTick(){
+   
+   if(SymbolInfoTick(_Symbol,last_tick)){
+        ask_curr = NormalizeDouble(last_tick.ask,_Digits);
+        bid_curr = NormalizeDouble(last_tick.bid,_Digits);
+        if(PositionsTotal()==0){
+            
+               lot_prev = inLot;
+               lot_curr = inLot;
+        }
+        if(PositionsTotal()<1){
+              if((ask_curr>ask_prev) || (ask_curr<ask_prev-_Point*innerStepPrice*10)){
+                  ask_prev = ask_curr;
+                  bid_prev = bid_curr;
+              }
+              if(ask_curr==ask_prev-_Point*innerStepPrice*10){
+                Print("ask_prev = ",ask_prev, " ask_curr = ",ask_curr);
+                Print("bid_prev = ",bid_prev, " bid_curr = ",bid_curr);
+                ask_prev = ask_curr;
+                bid_prev = bid_curr;
+                PlaceBuyStopOrder(_Symbol,lot_curr,Magic_num,Slipage,ask_curr+_Point*innerStepPrice*innerValueBetweenOrders);
+                PlaceSellStopOrder(_Symbol,lot_curr,Magic_num,Slipage,bid_curr-_Point*innerStepPrice*innerValueBetweenOrders);
+              }
+        }else if((PositionsTotal()>1)&&(TotalProfitForBuy(_Symbol)+TotalProfitForSell(_Symbol)<0)&&(OrdersTotal() != 1)){
+             lot_curr = lot_prev*2;
+             MinAndMaxPriceOfOpenPositions(min,max);
+             if((ask_curr >= max +(_Point*innerValueBetweenPairsOrders))||(bid_curr<=min-(_Point*innerValueBetweenPairsOrders))){
+                 while(OrdersTotal()<2){
+                    PlaceBuyStopOrder(_Symbol,lot_curr,Magic_num,Slipage,ask_curr+_Point*innerStepPrice*innerValueBetweenOrders);
+                    PlaceSellStopOrder(_Symbol,lot_curr,Magic_num,Slipage,bid_curr-_Point*innerStepPrice*innerValueBetweenOrders);
+                    lot_prev = lot_curr;
+                 }
+                
+             }
+             //lot_prev = lot_curr;
+         }
+         
+         if(NormalizeDouble(TotalProfitForBuy(_Symbol),_Digits)+NormalizeDouble(TotalProfitForSell(_Symbol),_Digits) > NormalizeDouble(_Point*innerValueForProfit,_Digits)){
+             CloseAllPositions();
+             int orders=OrdersTotal();
+             for(int i=0;i<=orders;i++){
+                ulong ticket=OrderGetTicket(i);
+               
+                if(ticket!=0){
+                   if(OrderSelect(ticket))
+                     trade.OrderDelete(ticket);
+                     i--;
+                     
+                 }
+             }
+             lot_curr = inLot;
+         }
+
+
+   }
+}
